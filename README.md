@@ -25,10 +25,10 @@
 
 ## 想試試看
 
-還沒推上 GitHub；推上去之後，在 Claude Code 裡兩行就裝好：
+在 Claude Code 裡兩行就裝好：
 
 ```text
-/plugin marketplace add <owner>/kehao-claude-skills
+/plugin marketplace add kehao-chen/kehao-claude-skills
 /plugin install english-coach@kehao-claude-skills      # 或 kehao-util@kehao-claude-skills
 ```
 

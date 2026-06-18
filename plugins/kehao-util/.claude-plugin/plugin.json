@@ -4,5 +4,7 @@
   "description": "Everyday utilities for Claude Code.",
   "author": {
     "name": "Kehao Chen"
-  }
+  },
+  "homepage": "https://github.com/kehao-chen/kehao-claude-skills",
+  "license": "MIT"
 }

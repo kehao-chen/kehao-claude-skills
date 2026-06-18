@@ -14,7 +14,7 @@
 ## 安裝
 
 ```text
-/plugin marketplace add <owner>/kehao-claude-skills   # 還沒上 GitHub；publish 後換成真 owner
+/plugin marketplace add kehao-chen/kehao-claude-skills
 /plugin install english-coach@kehao-claude-skills
 /english-coach:setup          # 一次性，接上狀態列顯示
 ```
