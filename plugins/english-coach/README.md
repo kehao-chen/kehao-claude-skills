@@ -1,6 +1,6 @@
 # english-coach (plugin)
 
-每次你**手打英文**送出時，背景檢查你的英文，有問題才在底部狀態列丟一條 `😇 original → corrected (Pattern)`（含 native-American 語感建議）。**不進 Claude 的 context、不加 token、不卡輸入。**
+每次你**手打英文**送出時，背景檢查你的英文，有問題才在底部狀態列丟一條 `😇 original → corrected (為什麼)`（含 native-American 語感建議）。**不進 Claude 的 context、不加 token、不卡輸入。**
 
 > 這是平常自己在用的小工具，放出來單純分享。沒有特別的維護計畫，歡迎自由取用、改成適合你的版本 🙂
 
