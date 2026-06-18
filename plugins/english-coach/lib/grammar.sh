@@ -116,3 +116,46 @@ ec_map_lint() {
 
   printf '😇 %s → %s (%s)' "$original" "$improved" "$(ec__reason "$msg" "$kind")" | ec_sanitize_local
 }
+
+# $1=textfile $2=char_start $3=char_end $4=action(insert|remove) $5=payload
+# echo "original<TAB>improved" + return 0, or return 1.
+ec__render_edit() {
+  perl -CSDA - "$2" "$3" "$4" "$5" "$1" <<'PL'
+use strict; use warnings;
+my ($cs,$ce,$action,$payload,$tf)=@ARGV;
+open(my $fh,'<:encoding(UTF-8)',$tf) or exit 1;
+local $/; my $T=<$fh>//''; close($fh);
+my $len=length($T);
+exit 1 if $cs<0 || $ce<$cs || $ce>$len;
+# insert: avoid gluing two word chars together regardless of harper's spacing convention
+if ($action eq 'insert' && length($payload)) {
+  my $before = $ce>0 ? substr($T,$ce-1,1) : ' ';
+  my $after  = $ce<$len ? substr($T,$ce,1) : ' ';
+  $payload = ' '.$payload if ($before=~/\w/ && substr($payload,0,1)=~/\w/);
+  $payload = $payload.' ' if (substr($payload,-1)=~/\w/ && $after=~/\w/);
+}
+my $corrected;
+if    ($action eq 'insert'){ $corrected=substr($T,0,$ce).$payload.substr($T,$ce); }
+elsif ($action eq 'remove'){ $corrected=substr($T,0,$cs).substr($T,$ce); }
+else  { exit 1; }
+$corrected =~ s/[ \t]{2,}/ /g;
+my @a=split //,$T; my @b=split //,$corrected;
+my ($na,$nb)=(scalar(@a),scalar(@b));
+my $p=0; $p++ while($p<$na && $p<$nb && $a[$p] eq $b[$p]);
+my $s=0; $s++ while($s<($na-$p) && $s<($nb-$p) && $a[$na-1-$s] eq $b[$nb-1-$s]);
+my $lo=$p; my $ha=$na-$s; my $hb=$nb-$s;
+$lo-- while($lo>0 && $a[$lo-1]=~/\S/);                      # prefix -> word start
+if ($action ne 'remove'){ while($ha<$na && $a[$ha]=~/\S/){$ha++;$hb++;} }  # suffix -> word end
+my $om=substr($T,$lo,$ha-$lo);
+my $im=substr($corrected,$lo,$hb-$lo);
+if ($om=~/^\s*$/ || $im=~/^\s*$/){                          # empty side -> pull preceding word
+  my $q=$lo;
+  $q-- while($q>0 && $a[$q-1]=~/\s/);
+  $q-- while($q>0 && $a[$q-1]=~/\S/);
+  if ($q<$lo){ $om=substr($T,$q,$ha-$q); $im=substr($corrected,$q,$hb-$q); }
+}
+for($om,$im){ s/^\s+//; s/\s+$//; }
+exit 1 if ($om eq $im) || ($om eq '' && $im eq '');
+print "$om\t$im";
+PL
+}

@@ -56,4 +56,18 @@ ec_map_lint "$TF" "$L_NOOP" >/dev/null; assert_rc "map noop -> rc1" 1 $?
 L_UNK='{"kind":"Spelling","span":{"char_start":0,"char_end":1},"message":"x","priority":1,"suggestions":[],"matched_text":"are"}'
 ec_map_lint "$TF" "$L_UNK" >/dev/null; assert_rc "map empty-sug -> rc1" 1 $?
 
+# --- ec_map_lint: Insert / Remove (perl diff) ---
+TF2="$(mktemp)"; printf 'I have cat' > "$TF2"
+# Insert "a" before "cat": zero-width point at char 7 (after "have "), payload missing space
+L_INS='{"kind":"Grammar","span":{"char_start":7,"char_end":7},"message":"Add the article.","priority":20,"suggestions":["Insert “a”"],"matched_text":""}'
+assert_eq "map insert article" "😇 cat → a cat (Add the article.)" "$(ec_map_lint "$TF2" "$L_INS")"
+TF3="$(mktemp)"; printf 'please return back to me' > "$TF3"
+# Remove redundant "back": span covers " back" [13,18)
+L_RM='{"kind":"Redundancy","span":{"char_start":13,"char_end":18},"message":"“back” is redundant","priority":30,"suggestions":["Remove error"],"matched_text":" back"}'
+# Redundancy is style; for this unit test we call ec_map_lint directly (gate is tested elsewhere)
+assert_eq "map remove redundant" "😇 return back → return (“back” is redundant)" "$(ec_map_lint "$TF3" "$L_RM")"
+# perl absent OR unrenderable -> rc1 (simulate by an out-of-range span)
+L_BAD='{"kind":"Grammar","span":{"char_start":99,"char_end":99},"message":"m","priority":1,"suggestions":["Insert “z”"],"matched_text":""}'
+ec_map_lint "$TF2" "$L_BAD" >/dev/null; assert_rc "map oob span -> rc1" 1 $?
+
 ec_tests_done
