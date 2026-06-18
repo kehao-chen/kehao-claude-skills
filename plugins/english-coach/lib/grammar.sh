@@ -74,3 +74,45 @@ ec__reason() {
     *)              printf '%s' "$(printf '%s' "$kind" | tr 'A-Z' 'a-z')" ;;
   esac
 }
+
+# Defense-in-depth for locally-built lines: strip control chars, cap length.
+ec_sanitize_local() {
+  local line; line="$(cat)"
+  line="$(printf '%s' "$line" | LC_ALL=C tr -d '\000-\037\177')"
+  local max n; max="${EC_MAX_TIP_LEN:-120}"
+  n="$(printf '%s' "$line" | wc -m | tr -d ' ')"
+  [ "$n" -gt "$max" ] && line="$(printf '%s' "$line" | cut -c1-"$max")…"
+  printf '%s' "$line"
+}
+
+# $1=textfile $2=lint(JSON). echo "😇 a → b (reason)" + return 0, or return 1 (unrenderable).
+ec_map_lint() {
+  local tf="$1" lint="$2" cs ce kind msg matched sug action payload original improved frag
+  cs="$(printf '%s' "$lint" | jq -r '.span.char_start // empty')"
+  ce="$(printf '%s' "$lint" | jq -r '.span.char_end // empty')"
+  kind="$(printf '%s' "$lint" | jq -r '.kind // empty')"
+  msg="$(printf '%s' "$lint" | jq -r '.message // empty')"
+  matched="$(printf '%s' "$lint" | jq -r '.matched_text // empty')"
+  sug="$(printf '%s' "$lint" | jq -r '.suggestions[0] // empty')"
+  [ -n "$cs" ] && [ -n "$ce" ] || return 1
+
+  case "$sug" in
+    'Replace with: '*) action="replace"; payload="$(ec__sug_quoted "$sug")" ;;
+    'Insert '*)        action="insert";  payload="$(ec__sug_quoted "$sug")" ;;
+    'Remove'*)         action="remove";  payload="" ;;
+    *) return 1 ;;
+  esac
+
+  if [ "$action" = "replace" ]; then
+    [ -n "$matched" ] && [ -n "$payload" ] || return 1
+    original="$matched"; improved="$payload"
+  else
+    [ "$action" = "insert" ] && [ -z "$payload" ] && return 1
+    frag="$(ec__render_edit "$tf" "$cs" "$ce" "$action" "$payload")" || return 1
+    original="${frag%%$'\t'*}"; improved="${frag#*$'\t'}"
+  fi
+  [ -n "$original$improved" ] || return 1
+  [ "$original" = "$improved" ] && return 1
+
+  printf '😇 %s → %s (%s)' "$original" "$improved" "$(ec__reason "$msg" "$kind")" | ec_sanitize_local
+}

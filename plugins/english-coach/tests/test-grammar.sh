@@ -43,4 +43,17 @@ assert_eq "reason declarative kept" "advice is uncountable" "$(ec__reason 'advic
 assert_eq "reason question -> phrase" "possible misspelling" "$(ec__reason 'Did you mean to spell “x” this way?' 'Spelling')"
 assert_eq "reason empty -> phrase" "repeated word" "$(ec__reason '' 'Repetition')"
 
+# --- ec_map_lint: Replace ---
+TF="$(mktemp)"; printf 'I beleive it' > "$TF"
+L_SP='{"kind":"Spelling","span":{"char_start":2,"char_end":9},"message":"Did you mean to spell “beleive” this way?","priority":63,"suggestions":["Replace with: “believe”"],"matched_text":"beleive"}'
+assert_eq "map replace spelling" "😇 beleive → believe (possible misspelling)" "$(ec_map_lint "$TF" "$L_SP")"
+L_AGR='{"kind":"Agreement","span":{"char_start":0,"char_end":4},"message":"Use the singular verb here.","priority":10,"suggestions":["Replace with: “is”"],"matched_text":"are"}'
+assert_eq "map replace agreement (message kept)" "😇 are → is (Use the singular verb here.)" "$(ec_map_lint "$TF" "$L_AGR")"
+# no-op (matched == payload) -> unrenderable rc1
+L_NOOP='{"kind":"Spelling","span":{"char_start":0,"char_end":1},"message":"x","priority":1,"suggestions":["Replace with: “are”"],"matched_text":"are"}'
+ec_map_lint "$TF" "$L_NOOP" >/dev/null; assert_rc "map noop -> rc1" 1 $?
+# unknown suggestion -> unrenderable rc1
+L_UNK='{"kind":"Spelling","span":{"char_start":0,"char_end":1},"message":"x","priority":1,"suggestions":[],"matched_text":"are"}'
+ec_map_lint "$TF" "$L_UNK" >/dev/null; assert_rc "map empty-sug -> rc1" 1 $?
+
 ec_tests_done
