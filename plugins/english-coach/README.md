@@ -42,10 +42,24 @@ EC_OPENAI_MODEL=openai/gpt-oss-120b      # alt: openai/gpt-oss-20b（更快）/ 
 EC_OPENAI_REASONING_EFFORT=low
 EC_OPENAI_MAX_TOKENS=512
 EC_TIP_SGR=38;5;248                       # tip 顏色（ANSI SGR）
+EC_GRAMMAR=auto                           # auto|harper|off：本地文法層（裝了 harper-cli 就用）
+EC_HARPER_GATE=errors                     # errors|any：哪些 lint 種類擋住 LLM
 [ -f "$EC_HOME/secrets.env" ] && . "$EC_HOME/secrets.env" || true
 ```
 
 可調 skip 門檻（`EC_MAX_WORDS`、`EC_MAX_SENTENCES`、`EC_MIN_WORDS`…）同樣放這裡。
+
+## 本地文法（Harper，選配）
+
+裝了 [Harper](https://github.com/Automattic/harper)（離線文法檢查）後，english-coach 會**先在本地擋文法／拼字錯**：抓到硬錯誤就直接在狀態列給一行修正、**完全不呼叫 LLM**（那句話不出網路）；只有文法乾淨時才把句子交給 LLM 做 native-American 語感。沒裝 Harper 就維持原本「LLM 同時做文法＋語感」。
+
+```text
+brew install harper      # 裝出 harper-cli（也可用 cargo 或 GitHub releases 預編譯檔）
+```
+
+- 開關：`EC_GRAMMAR=auto`（裝了就用）／`harper`（強制）／`off`（停用）。
+- `EC_HARPER_GATE=errors`（預設）只讓硬錯誤擋 LLM；`any` 則 Harper 抓到什麼風格建議也顯示。
+- 想連語感都全本地：把 `EC_OPENAI_BASE_URL` 指向本地 Ollama（`http://localhost:11434/v1`）。
 
 ## 移除
 
@@ -59,6 +73,7 @@ EC_TIP_SGR=38;5;248                       # tip 顏色（ANSI SGR）
 ## 運作細節
 
 - **程式碼**在 plugin（`lib/`，從 `${CLAUDE_PLUGIN_ROOT}` 執行）；**狀態、設定、金鑰**在固定的 `~/.claude/english-coach/`（跨 plugin 更新存活，且讓 statusline wrapper 找得到 tip）。
+- 有裝 Harper 時，worker 先跑本地文法：抓到硬錯誤就顯示本地行並跳過 LLM；文法乾淨才用 idiom-only prompt 問 LLM；Harper 沒裝／解析失敗則退回 combined prompt（＝原行為）。
 - per-session 單調遞增 `seq` 確保只顯示「對得上當前輸入」的 tip；送下一句舊 tip 自動失效。
 - `skiprules` 在呼叫 LLM 前就擋掉程式碼、log、CJK、太短太長；URL 和路徑會被遮成 `(url)`、`(path)` 再送（不外洩）。
 - 後端走 OpenAI 相容 API（預設 Groq）；key 只放 600 權限的 `secrets.env`，不進 argv、不進對話。

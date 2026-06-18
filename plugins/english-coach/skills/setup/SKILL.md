@@ -32,3 +32,5 @@ plugins cannot set the main statusLine, so the **tip display** must be wired onc
      tip appear at the bottom.
 
 If `wire-statusline.sh` exits non-zero, report its message and stop.
+
+> 選配：裝 `harper-cli`（`brew install harper`）即啟用本地文法層——有文法錯時本地直接修、不呼叫 LLM。見 README 的「本地文法」段。
