@@ -11,6 +11,13 @@
       "description": "Everyday utilities. Starts with new-skill: scaffold a new skill from a template.",
       "version": "0.1.0",
       "category": "utilities"
+    },
+    {
+      "name": "english-coach",
+      "source": "./plugins/english-coach",
+      "description": "Background English coach: checks hand-typed English on submit and shows a one-line native-American suggestion in the statusline. Zero context/token impact.",
+      "version": "0.1.0",
+      "category": "productivity"
     }
   ]
 }

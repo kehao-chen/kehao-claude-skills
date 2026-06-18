@@ -1,0 +1,8 @@
+{
+  "name": "english-coach",
+  "version": "0.1.0",
+  "description": "Background English coach: on every hand-typed English prompt it checks your writing and shows a one-line native-American suggestion in the statusline. Zero context/token impact, non-blocking.",
+  "author": {
+    "name": "Kehao Chen"
+  }
+}
