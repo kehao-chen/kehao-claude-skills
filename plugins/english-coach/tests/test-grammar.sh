@@ -34,4 +34,13 @@ printf '%s' "$J_STYLE" | EC_HARPER_GATE=errors ec_grammar_candidates >/dev/null;
 printf 'not json' | ec_grammar_candidates >/dev/null 2>&1; assert_rc "candidates bad -> rc2" 2 $?
 printf '{"oops":1}' | ec_grammar_candidates >/dev/null 2>&1; assert_rc "candidates wrong-shape -> rc2" 2 $?
 
+# --- ec__sug_quoted ---
+assert_eq "quoted curly" "believe" "$(ec__sug_quoted 'Replace with: “believe”')"
+assert_eq "quoted ascii" "a" "$(ec__sug_quoted 'Insert "a"')"
+assert_eq "quoted none" "" "$(ec__sug_quoted 'Remove error')"
+# --- ec__reason ---
+assert_eq "reason declarative kept" "advice is uncountable" "$(ec__reason 'advice is uncountable' 'Usage')"
+assert_eq "reason question -> phrase" "possible misspelling" "$(ec__reason 'Did you mean to spell “x” this way?' 'Spelling')"
+assert_eq "reason empty -> phrase" "repeated word" "$(ec__reason '' 'Repetition')"
+
 ec_tests_done

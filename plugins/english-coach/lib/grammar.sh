@@ -42,3 +42,35 @@ ec_grammar_candidates() {
     | sort_by(.span.char_start, .priority) | .[]
   ' 2>/dev/null
 }
+
+# Extract the payload between the first/last quote (curly U+201C/U+201D or ASCII ").
+ec__sug_quoted() {
+  printf '%s' "$1" | perl -CSDA -ne 'print $1 if /[\x{201c}"]([^\x{201c}\x{201d}"]*)[\x{201d}"]/'
+}
+
+# Deterministic concrete reason. Prefer Harper message; question-form/overlong/empty
+# -> concrete phrase per kind. NEVER a bare bucket like "spelling"/"grammar".
+ec__reason() {
+  local m="$1" kind="$2"
+  m="$(printf '%s' "$m" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  case "$m" in ''|*\?) m="" ;; esac
+  if [ -n "$m" ]; then
+    [ "$(printf '%s' "$m" | wc -m | tr -d ' ')" -gt 48 ] && m="$(printf '%s' "$m" | cut -c1-48)"
+    printf '%s' "$m"; return 0
+  fi
+  case "$kind" in
+    Spelling)       printf 'possible misspelling' ;;
+    Typo)           printf 'likely typo' ;;
+    Agreement)      printf 'subject–verb agreement' ;;
+    Capitalization) printf 'capitalization' ;;
+    Punctuation)    printf 'missing/incorrect punctuation' ;;
+    Repetition)     printf 'repeated word' ;;
+    Usage)          printf 'nonstandard usage' ;;
+    Malapropism)    printf 'wrong word' ;;
+    BoundaryError)  printf 'word-boundary error' ;;
+    Eggcorn)        printf 'misheard phrase' ;;
+    Nonstandard)    printf 'nonstandard form' ;;
+    Grammar)        printf 'grammar mistake' ;;
+    *)              printf '%s' "$(printf '%s' "$kind" | tr 'A-Z' 'a-z')" ;;
+  esac
+}
