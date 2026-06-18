@@ -1,0 +1,8 @@
+{
+  "name": "kehao-util",
+  "version": "0.1.0",
+  "description": "Everyday utilities for Claude Code.",
+  "author": {
+    "name": "Kehao Chen"
+  }
+}

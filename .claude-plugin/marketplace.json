@@ -1,0 +1,16 @@
+{
+  "name": "kehao-claude-skills",
+  "description": "Kehao's personal Claude Code skills & utilities.",
+  "owner": {
+    "name": "Kehao Chen"
+  },
+  "plugins": [
+    {
+      "name": "kehao-util",
+      "source": "./plugins/kehao-util",
+      "description": "Everyday utilities. Starts with new-skill: scaffold a new skill from a template.",
+      "version": "0.1.0",
+      "category": "utilities"
+    }
+  ]
+}
