@@ -25,3 +25,20 @@ ec_grammar_resolve() {
       if command -v "$EC_HARPER_BIN" >/dev/null 2>&1; then printf 'harper'; else printf 'off'; fi ;;
   esac
 }
+
+# stdin: harper JSON. stdout: ordered hard-candidate lints as JSONL (compact).
+# return 2 iff stdout is not the expected harper shape (array of {lints:...}).
+ec_grammar_candidates() {
+  local json
+  json="$(cat)"
+  printf '%s' "$json" | jq -e \
+    '(type=="array") and (length>=1) and (.[0]|type=="object") and (.[0]|has("lints"))' \
+    >/dev/null 2>&1 || return 2
+  printf '%s' "$json" | jq -c --arg hard "$EC_HARD_KINDS" --arg gate "${EC_HARPER_GATE:-errors}" '
+    [.[].lints[]?]
+    | (if $gate=="any" then .
+       else ($hard|split(" ")) as $hk | map(select(.kind as $k | $hk|index($k)))
+       end)
+    | sort_by(.span.char_start, .priority) | .[]
+  ' 2>/dev/null
+}
