@@ -95,4 +95,18 @@ assert_rc "check hard_unrenderable rc3" 3 "$rc"; assert_eq "check hard_unrendera
 mk 'not json at all'
 export FAKE_HARPER_RC=0 ; ec_grammar_check "$TFC" >/dev/null 2>&1; assert_rc "check unavailable rc2" 2 $?
 
+# --- review fixes: tab split, locale-safe truncation, no bare-bucket reason ---
+# A literal tab in the text must not corrupt the original→improved split (was: "the → thethe").
+TFTAB="$(mktemp)"; printf 'the\tthe end here' > "$TFTAB"
+L_TAB='{"kind":"Repetition","span":{"char_start":3,"char_end":7},"message":"Remove the repeated word.","priority":30,"suggestions":["Remove error"],"matched_text":"\tthe"}'
+assert_eq "map remove across tab" "😇 the the → the (Remove the repeated word.)" "$(ec_map_lint "$TFTAB" "$L_TAB")"
+# ec__reason: char-safe truncation under a C locale (was: byte cut split a curly quote)
+A47="$(printf 'a%.0s' {1..47})"
+assert_eq "reason mb trunc (C locale)" "${A47}“" "$(LC_ALL=C ec__reason "${A47}“more" Usage)"
+# ec__reason: concrete phrase, never a bare category bucket
+assert_eq "reason capitalization concrete" "needs a capital letter" "$(ec__reason '' 'Capitalization')"
+assert_eq "reason default generic (not lowercased enum)" "more natural phrasing" "$(ec__reason '' 'WordChoice')"
+# ec_sanitize_local: char-safe truncation keeps whole chars + ellipsis under a C locale
+assert_eq "sanitize mb trunc (C locale)" "a“…" "$(printf 'a“bc' | EC_MAX_TIP_LEN=2 LC_ALL=C ec_sanitize_local)"
+
 ec_tests_done

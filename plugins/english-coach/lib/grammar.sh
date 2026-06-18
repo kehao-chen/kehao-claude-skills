@@ -55,14 +55,16 @@ ec__reason() {
   m="$(printf '%s' "$m" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
   case "$m" in ''|*\?) m="" ;; esac
   if [ -n "$m" ]; then
-    [ "$(printf '%s' "$m" | wc -m | tr -d ' ')" -gt 48 ] && m="$(printf '%s' "$m" | cut -c1-48)"
-    printf '%s' "$m"; return 0
+    # char-safe truncation: cut -c/wc -m go byte-wise under a C locale (worker is nohup'd
+    # from a hook where LANG is often unset), splitting Harper's curly quotes. perl -CSDA is char-safe.
+    printf '%s' "$m" | perl -CSDA -e 'local $/; my $s=<>; $s//=""; print substr($s,0,48)'
+    return 0
   fi
   case "$kind" in
     Spelling)       printf 'possible misspelling' ;;
     Typo)           printf 'likely typo' ;;
     Agreement)      printf 'subject–verb agreement' ;;
-    Capitalization) printf 'capitalization' ;;
+    Capitalization) printf 'needs a capital letter' ;;
     Punctuation)    printf 'missing/incorrect punctuation' ;;
     Repetition)     printf 'repeated word' ;;
     Usage)          printf 'nonstandard usage' ;;
@@ -71,7 +73,7 @@ ec__reason() {
     Eggcorn)        printf 'misheard phrase' ;;
     Nonstandard)    printf 'nonstandard form' ;;
     Grammar)        printf 'grammar mistake' ;;
-    *)              printf '%s' "$(printf '%s' "$kind" | tr 'A-Z' 'a-z')" ;;
+    *)              printf 'more natural phrasing' ;;   # concrete generic, never the lowercased bucket
   esac
 }
 
@@ -79,10 +81,9 @@ ec__reason() {
 ec_sanitize_local() {
   local line; line="$(cat)"
   line="$(printf '%s' "$line" | LC_ALL=C tr -d '\000-\037\177')"
-  local max n; max="${EC_MAX_TIP_LEN:-120}"
-  n="$(printf '%s' "$line" | wc -m | tr -d ' ')"
-  [ "$n" -gt "$max" ] && line="$(printf '%s' "$line" | cut -c1-"$max")…"
-  printf '%s' "$line"
+  local max; max="${EC_MAX_TIP_LEN:-120}"
+  # char-safe cap (perl -CSDA, not cut -c/wc -m which go byte-wise under a C locale)
+  printf '%s' "$line" | perl -CSDA -e 'my $m=shift; local $/; my $s=<>; $s//=""; if (length($s)>$m){ print substr($s,0,$m),"\x{2026}" } else { print $s }' "$max"
 }
 
 # $1=textfile $2=lint(JSON). echo "😇 a → b (reason)" + return 0, or return 1 (unrenderable).
@@ -154,7 +155,7 @@ if ($om=~/^\s*$/ || $im=~/^\s*$/){                          # empty side -> pull
   $q-- while($q>0 && $a[$q-1]=~/\S/);
   if ($q<$lo){ $om=substr($T,$q,$ha-$q); $im=substr($corrected,$q,$hb-$q); }
 }
-for($om,$im){ s/^\s+//; s/\s+$//; }
+for($om,$im){ s/\s+/ /g; s/^\s+//; s/\s+$//; }   # collapse internal ws (e.g. tabs) so the TAB field split in ec_map_lint is safe
 exit 1 if ($om eq $im) || ($om eq '' && $im eq '');
 print "$om\t$im";
 PL
