@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Test double for `harper-cli`. Ignores all args; emits the JSON in $FAKE_HARPER_OUT
+# and exits with $FAKE_HARPER_RC (default 0). Mirrors real harper: it may print valid
+# JSON yet exit non-zero when lints are found.
+cat "${FAKE_HARPER_OUT:?FAKE_HARPER_OUT unset}"
+exit "${FAKE_HARPER_RC:-0}"
