@@ -42,19 +42,20 @@
 
 ```
 worker_main(sid_key, seq, pf):
-  engine = ec_grammar_resolve()          # EC_GRAMMAR + command -v $EC_HARPER_BIN
-  tip = ""
-  used_grammar = false
+  state = "unavailable"; tip = ""
 
-  if engine == harper:
-      used_grammar = true
-      tip = ec_grammar_check(pf)          # 只回「硬錯誤」那條；只剩風格類/無錯 → 空
-      # 防禦式：harper 非零退出 / 空 / jq 解析失敗 → tip="" 並往下走 LLM
+  if ec_grammar_resolve() == harper:        # EC_GRAMMAR + command -v $EC_HARPER_BIN
+      tip = ec_grammar_check(pf); rc = $?
+      # 三態（注意：harper 找到 lint 會「先印 JSON、再以非零退出」，
+      # 所以成敗一律看 stdout 能否解析成 JSON，絕不看 exit code）：
+      if   rc == 0 and tip != "": state = "hard_tip"        # 已驗出硬錯誤
+      elif rc == 0:               state = "verified_clean"  # 成功解析、無硬錯誤候選
+      else:                       state = "unavailable"     # 無 JSON/解析失敗/執行錯誤
 
-  if tip == "":
-      tmpl = used_grammar ? "prompt-template-idiom.txt" : "prompt-template.txt"
-      raw = ec_run_provider(pf, tmpl)     # provider 從 tmpl 讀 rubric
-      tip = ec_sanitize_tip(raw)
+  if state != "hard_tip":                   # 沒有要顯示的本地硬錯誤 → 走 LLM
+      tmpl = (state == "verified_clean") ? "prompt-template-idiom.txt"
+                                         : "prompt-template.txt"   # combined（含 unavailable）
+      tip = ec_sanitize_tip( ec_run_provider(pf, tmpl) )          # provider 從 tmpl 讀 rubric
 
   # 之後與現狀相同：
   if ec_seq_current(sid_key) != seq: return    # seq guard
@@ -97,7 +98,8 @@ worker_main(sid_key, seq, pf):
 
 - 輸入用 **temp 檔路徑**（`check.sh` 已寫好的 `.txt`），避免 stdin 與「位置參數是文字還是路徑」的歧義；`.txt` 副檔名讓 Harper 以 plaintext 自動辨識。檔內已是 redact 過的 prose。
 - 輸出是 **JSON 陣列**；我們只取 `.[0].lints`（我們只送一個輸入）。
-- 用 `jq` 解析。**防禦式**：`harper` 非零退出、輸出空、或 `jq` 解析失敗 → 一律 `return`／echo 空，讓 worker 接著走 LLM。Harper CLI 為 experimental、欄位會漂，**任何意外都不可炸掉、不可阻斷**。
+- ⚠️ **exit code 不可信**：`harper-cli lint --format json` 會**先把 JSON 印到 stdout，再於「有 lint」時 `bail!("Lints were found")` 以非零退出**（upstream `harper-cli/src/lint.rs`：JSON 印出 L365-367、`if has_lints { bail }` L374-376）。「找到錯誤」本身就是非零退出，因此 **成敗一律以「stdout 能否解析成預期 JSON」判定，完全忽略 exit code**。
+- 用 `jq` 解析 `.[0].lints`，回傳三態給 worker（§4.1／§8）：解析成功且有硬錯誤候選 → echo 該行、`return 0`（hard_tip）；解析成功但無硬錯誤候選 → echo 空、`return 0`（verified_clean）；**stdout 無法解析（空／壞 JSON／執行錯誤）→ `return` 非零（unavailable）**。Harper CLI 為 experimental、欄位會漂，**任何意外都不可炸掉、不可阻斷**。
 
 ### 5.3 選擇政策（哪一條、要不要 gate）
 
@@ -112,7 +114,7 @@ worker_main(sid_key, seq, pf):
 
 1. `EC_HARPER_GATE=errors`（預設）：只在「硬錯誤」桶裡挑。`any`：所有 `kind` 都可挑（Harper 找到什麼就顯示什麼）。
 2. 在候選裡取 **`char_start` 最小**那條（修最前面的錯）；平手用 **`priority` 最小**（Harper 內部 lower=higher priority）。
-3. 候選為空（只剩風格類，或完全無錯）→ echo 空 → worker 走 LLM idiom。
+3. 候選為空（只剩風格類，或完全無錯）→ echo 空、`return 0`（verified_clean）→ worker 走 idiom-only LLM。
 
 > Harper 的 `kind` 全集（供對照）：Agreement, BoundaryError, Capitalization, Eggcorn, Enhancement, Formatting, Grammar, Malapropism, Miscellaneous, Nonstandard, Punctuation, Readability, Redundancy, Regionalism, Repetition, Spelling, Style, Typo, Usage, WordChoice。未列入硬錯誤桶者一律視為語感／風格。
 
@@ -129,7 +131,9 @@ worker_main(sid_key, seq, pf):
 3. 以 perl（`-CSDA`，字元安全）算出 `corrected` 全文，再對 `T` 與 `corrected` 取**字元層級**最長共同前綴／後綴、向兩側擴到**詞邊界**，中間那段即：
    - `original` = `T` 的該段（缺字情形可能為空，改取插入點鄰近詞當視窗）
    - `improved` = `corrected` 的該段
-4. `reason`（決定性推導，英文，與既有 tip 風格一致）：令 `m = trim(message)`。若 `m` 為空、以 `?` 結尾、或長度 > 48 → 用 `kind`→短英文標籤 map；否則用 `m`（截到 ≤48 字）。標籤 map 範例：`Agreement`→“subject–verb agreement”、`Spelling`→“spelling”、`Punctuation`→“punctuation”、`Usage`→“usage”，其餘 `kind` 用其小寫名。（如此 §9 測試 1 的拼字 message 以 `?` 結尾 → 落到標籤 “spelling”，輸出決定性。）
+4. `reason`（決定性推導，英文，與既有 tip 風格一致）：**reason 必須是具體的 WHY，絕不可用裸分類標籤**——這是既有 rubric 的硬規定（`lib/prompt-template.txt:14`「NEVER a bare category label like (article)…」）與 main 最新方向（commit `5747efa`「parenthetical carries the concrete reason, not a category tag」）；Harper 路徑與 LLM 路徑的 UX 必須一致。
+   - 令 `m = trim(message)`。Harper 的 `message` 多半已是具體說明 → **優先用 `m`**（截到 ≤48 字；把結尾問號或「Did you mean…?」這類疑問句式轉成陳述）。
+   - 僅當 `m` 不堪用時，退到**具體短語**（非裸分類）map，例如：`Spelling`→“possible misspelling”、`Typo`→“likely typo”、`Agreement`→“subject–verb agreement”、`Repetition`→“repeated word”、`Punctuation`→“missing/incorrect punctuation”。**不要**用 “spelling”“grammar”“word choice” 這種桶名。
 5. 組成 `😇 <original> → <improved> (<reason>)`，再過共用 sanitizer（§5.5）。
 
 > 平凡子集：ReplaceWith 時 `original=matched_text`、`improved=X`，不必走 diff；可作為快路徑，但 §5.4 的統一法是正規路徑（涵蓋漏／多冠詞、介係詞等對非母語者最常見的錯）。
@@ -145,20 +149,23 @@ worker_main(sid_key, seq, pf):
   - 明說「文法／拼字已在本地檢查過，**只**挑 native-American 語感／idiom／自然搭配／簡潔；不要挑小文法」。
   - 同一行輸出格式 `😇 original → improved (reason)`，否則 NOTHING。
   - 一句 soft 安全網：若仍看到**明顯**漏網的文法錯，可指出（避免本地漏抓就完全沒人管）。
-- worker 依「是否跑過 Harper」選 template，透過既有的 `ec_run_provider`／`ec_rubric` 機制（把 `ec_rubric` 改成可指定 template 檔）。
+- worker 依 §4.1 的 **state** 選 template：`verified_clean` → idiom-only；其餘（`unavailable`：off／Harper 不在／解析失敗）→ combined。透過既有的 `ec_run_provider`／`ec_rubric` 機制（把 `ec_rubric` 改成可指定 template 檔）。
 
 ## 7. 隱私
 
-- gate 後，**有硬錯誤的句子完全不出網路**；只有「文法已乾淨」的句子才為了 idiom 送往 LLM。
+- gate 後，**被本地驗出硬錯誤的句子完全不出網路**（hard_tip）。其餘才送 LLM：`verified_clean` → idiom-only；`unavailable`（Harper off／不在／解析失敗）→ combined（＝今天，無回歸）。
 - 既有保護不變：URL/path 先 redact；金鑰只在 600 的 `secrets.env`、不進 argv、不進對話。
 - 文件補一段（不綁核心）：把 `EC_OPENAI_BASE_URL` 指向本地 Ollama（`http://localhost:11434/v1`）即可讓 idiom 也全本地——現有 openai 後端已支援。
 
 ## 8. 錯誤處理與退回
 
-- Harper 不在／`EC_GRAMMAR=off` → `resolve=off` → worker 直接走 combined LLM（＝今天）。
-- Harper 退出非零／輸出空／JSON 非預期／`jq` 失敗 → `ec_grammar_check` 回空 → worker 走 **idiom-only** LLM（因為 Harper 有「嘗試跑」）。
-  - 取捨：此時文法可能沒被本地擋到；idiom prompt 的 soft 安全網可兜住明顯文法錯。可接受。
-- log（沿用 `EC_LOG`，預設關）：resolve 結果、是否走 grammar、harper 退出碼，便於除錯；不記原文（除非既有 `EC_LOG_ORIGINAL`）。
+三態（見 §4.1）對應的退回：
+
+- **hard_tip**（解析成功、有硬錯誤候選）→ 顯示本地行、**不呼叫 LLM**。注意此時 harper 多半以**非零退出**（找到 lint 即 bail），但因 stdout 有合法 JSON → 視為成功。
+- **verified_clean**（解析成功、無硬錯誤候選）→ 走 **idiom-only** LLM（此時「文法確實已驗過且乾淨」的前提才成立）。
+- **unavailable**（`EC_GRAMMAR=off`、Harper 不在、或 stdout 無法解析／壞 JSON／執行錯誤）→ 走 **combined** LLM（＝今天的完整 grammar+idiom 覆蓋）。
+  - 關鍵修正：解析失敗**不可**降級成 idiom-only——那等於謊稱「文法已查過」，會在 CLI/schema 漂移時把既有覆蓋整個弱化。失敗就回 combined（無回歸）；若使用者偏好，亦可設定成 no-network/no-tip。
+- log（沿用 `EC_LOG`，預設關）：resolve 結果、最終 state、harper 退出碼與 stdout 是否可解析，便於除錯；不記原文（除非既有 `EC_LOG_ORIGINAL`）。
 - `EC_HARPER_BIN` 可被環境覆寫 → 亦是**測試注入點**（見 §9）。
 
 ## 9. 測試
@@ -167,7 +174,7 @@ worker_main(sid_key, seq, pf):
 
 新增 `plugins/english-coach/tests/`（或 `scripts/test-grammar.sh`），用簡單 bash 斷言涵蓋：
 
-1. ReplaceWith 拼字（`beleive`）→ `😇 beleive → believe (spelling)`。
+1. ReplaceWith 拼字（`beleive`）→ `😇 beleive → believe (possible misspelling)`（reason 為具體短語、非裸分類）。
 2. Agreement（`are`→`is`）→ 正確一行。
 3. Insert（漏冠詞）→ 正確渲染 `original → improved`。
 4. Remove（多餘字）→ 正確渲染。
@@ -175,8 +182,10 @@ worker_main(sid_key, seq, pf):
 6. `EC_HARPER_GATE=any` → 風格類也顯示。
 7. Harper 不在 + `EC_GRAMMAR=auto` → resolve=off → 走 combined。
 8. `EC_GRAMMAR=off`（即使裝了 harper）→ 不呼叫 harper。
-9. Harper 吐壞 JSON → 回空、不炸。
-10. 全乾淨（無 lint）→ 回空 → 走 LLM idiom。
+9. Harper 吐**壞 JSON／空 stdout**（不論 exit code）→ `ec_grammar_check` 回**非零**（unavailable）、不炸 → worker 走 **combined**（不是 idiom-only）。
+10. 全乾淨（無 lint）→ echo 空、`return 0`（verified_clean）→ 走 **idiom-only** LLM。
+11. **exit-code 回歸測（守住 privacy gate）**：假 harper **輸出含一個 hard error 的合法 JSON、但 `exit 1`** → 必須仍判 hard_tip、顯示本地行、**不呼叫 LLM**（對應 §5.2 的 upstream `bail!` 行為）。
+12. **state 不混測**：合法 JSON 無 hard error（verified_clean）→ idiom-only；對照壞 JSON（unavailable）→ combined，確認兩條路不混淆。
 
 並維持 `./scripts/validate.sh` 通過。
 
@@ -197,7 +206,8 @@ worker_main(sid_key, seq, pf):
 
 | 風險 | 緩解 |
 |---|---|
-| Harper CLI experimental、flag／JSON 欄位會漂（如已移除的 `--language`） | pin 預期版本並寫進註解；解析全程防禦式，任何意外→回空→走 LLM；升級時重看 `--help` 與 JSON schema |
+| Harper CLI experimental、flag／JSON 欄位會漂（如已移除的 `--language`） | pin 預期版本並寫進註解；解析全程防禦式，**成敗看 stdout 是否為合法 JSON、不看 exit code**；解析失敗→unavailable→走 **combined**（不降級成 idiom-only）；升級時重看 `--help` 與 JSON schema |
+| `harper-cli` 找到 lint 即以 `bail!` 非零退出，易被誤判為「失敗」而繞過本地、破壞 privacy gate | 判斷成敗只看 stdout 能否解析 JSON、忽略 exit code；測試 11 鎖此回歸 |
 | `suggestions` 是 `Display` 字串、彎引號 | 明確剝彎引號（容忍 ASCII）；無法解析的 suggestion 跳過該 lint |
 | span 為字元索引、可能含多位元組 | 切片一律用 perl `-CSDA`（字元安全），不用 byte 工具 |
 | Harper 冷啟動 ~數十 ms | 在背景 worker 跑，不影響輸入；可接受 |
