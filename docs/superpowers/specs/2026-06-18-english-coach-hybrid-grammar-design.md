@@ -157,7 +157,7 @@ worker_main(sid_key, seq, pf):
   - 明說「文法／拼字已在本地檢查過，**只**挑 native-American 語感／idiom／自然搭配／簡潔；不要挑小文法」。
   - 同一行輸出格式 `😇 original → improved (reason)`，否則 NOTHING。
   - 一句 soft 安全網：若仍看到**明顯**漏網的文法錯，可指出（避免本地漏抓就完全沒人管）。
-- worker 依 §4.1 的 **state** 選 template：`verified_clean` → idiom-only；其餘（`unavailable`：off／Harper 不在／解析失敗）→ combined。透過既有的 `ec_run_provider`／`ec_rubric` 機制（把 `ec_rubric` 改成可指定 template 檔）。
+- worker 依 §4.1 的 **state** 決定：`verified_clean` → idiom-only；`unavailable`（off／Harper 不在／解析失敗）→ combined；**`hard_tip` / `hard_unrenderable` → 不呼叫 provider**。走 LLM 的兩態透過既有的 `ec_run_provider`／`ec_rubric` 機制（把 `ec_rubric` 改成可指定 template 檔）。
 
 ## 7. 隱私
 
