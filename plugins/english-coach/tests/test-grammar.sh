@@ -70,4 +70,29 @@ assert_eq "map remove redundant" "😇 return back → return (“back” is red
 L_BAD='{"kind":"Grammar","span":{"char_start":99,"char_end":99},"message":"m","priority":1,"suggestions":["Insert “z”"],"matched_text":""}'
 ec_map_lint "$TF2" "$L_BAD" >/dev/null; assert_rc "map oob span -> rc1" 1 $?
 
+# --- ec_grammar_check: 4 states ---
+export EC_HARPER_BIN="$HERE/fake-harper"
+mk() { FAKE_HARPER_OUT="$(mktemp)"; printf '%s' "$1" > "$FAKE_HARPER_OUT"; export FAKE_HARPER_OUT; }
+TFC="$(mktemp)"; printf 'I beleive it' > "$TFC"
+
+# hard_tip — valid JSON WITH a hard error, harper exits 1 (lints found). Must still gate.
+mk '[{"file":"x","lint_count":1,"lints":[{"kind":"Spelling","span":{"char_start":2,"char_end":9},"message":"sp?","priority":1,"suggestions":["Replace with: “believe”"],"matched_text":"beleive"}]}]'
+export FAKE_HARPER_RC=1 ; out="$(ec_grammar_check "$TFC")"; rc=$?
+assert_rc "check hard_tip rc0 despite exit1" 0 "$rc"
+assert_eq "check hard_tip line" "😇 beleive → believe (possible misspelling)" "$out"
+
+# verified_clean — valid JSON, no hard lint, exit 0
+mk '[{"file":"x","lint_count":0,"lints":[]}]'
+export FAKE_HARPER_RC=0 ; out="$(ec_grammar_check "$TFC")"; rc=$?
+assert_rc "check verified_clean rc0" 0 "$rc"; assert_eq "check verified_clean empty" "" "$out"
+
+# hard_unrenderable — valid JSON, hard error, but suggestions empty -> rc3, no line
+mk '[{"file":"x","lint_count":1,"lints":[{"kind":"Spelling","span":{"char_start":2,"char_end":9},"message":"sp?","priority":1,"suggestions":[],"matched_text":"beleive"}]}]'
+export FAKE_HARPER_RC=1 ; out="$(ec_grammar_check "$TFC")"; rc=$?
+assert_rc "check hard_unrenderable rc3" 3 "$rc"; assert_eq "check hard_unrenderable empty" "" "$out"
+
+# unavailable — garbage stdout (any exit)
+mk 'not json at all'
+export FAKE_HARPER_RC=0 ; ec_grammar_check "$TFC" >/dev/null 2>&1; assert_rc "check unavailable rc2" 2 $?
+
 ec_tests_done

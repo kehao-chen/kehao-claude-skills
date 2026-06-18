@@ -159,3 +159,22 @@ exit 1 if ($om eq $im) || ($om eq '' && $im eq '');
 print "$om\t$im";
 PL
 }
+
+# $1=textfile. echo tip-or-empty. return: 0 (hard_tip if non-empty / verified_clean if empty),
+# 3 (hard_unrenderable), 2 (unavailable). NEVER trust harper's exit code.
+ec_grammar_check() {
+  local tf="$1" out cands rc cand line
+  out="$("$EC_HARPER_BIN" lint --format json --quiet --no-color -d "${EC_HARPER_DIALECT:-us}" "$tf" 2>/dev/null)"
+  cands="$(printf '%s' "$out" | ec_grammar_candidates)"; rc=$?
+  [ "$rc" -ne 0 ] && return 2                      # not parseable -> unavailable
+  [ -z "$cands" ] && { printf ''; return 0; }      # parsed, no hard candidate -> verified_clean
+  while IFS= read -r cand; do
+    [ -z "$cand" ] && continue
+    if line="$(ec_map_lint "$tf" "$cand")" && [ -n "$line" ]; then
+      printf '%s' "$line"; return 0               # hard_tip
+    fi
+  done <<EOF
+$cands
+EOF
+  return 3                                          # hard error(s) but none renderable
+}
