@@ -16,7 +16,7 @@
       "name": "english-coach",
       "source": "./plugins/english-coach",
       "description": "Background English coach: checks hand-typed English on submit and shows a one-line native-American suggestion in the statusline. Zero context/token impact.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "category": "productivity"
     }
   ]
