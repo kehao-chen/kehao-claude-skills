@@ -106,15 +106,30 @@ ec_run_provider() {
 }
 
 ec_worker_main() {
-  local sid_key="$1" seq="$2" pf="$3" raw tip
-  # Always clean up the prompt temp file, even on early return.
-  # Use double-quotes so $pf is expanded NOW (while in scope as a local var),
-  # not when the EXIT trap fires after this function returns to the script level.
+  local sid_key="$1" seq="$2" pf="$3" state tip rc tmpl
   # shellcheck disable=SC2064
   trap "rm -f '$pf'" EXIT
 
-  raw="$(ec_run_provider "$pf")"
-  tip="$(printf '%s' "$raw" | ec_sanitize_tip)"
+  # Local grammar pre-pass first; gate the LLM on detected hard errors (§4.1).
+  state="unavailable"; tip=""
+  if [ "$(ec_grammar_resolve)" = "harper" ]; then
+    tip="$(ec_grammar_check "$pf")"; rc=$?
+    case "$rc" in
+      0) [ -n "$tip" ] && state="hard_tip" || state="verified_clean" ;;
+      3) state="hard_unrenderable" ;;
+      *) state="unavailable" ;;
+    esac
+  fi
+
+  case "$state" in
+    verified_clean) tmpl="prompt-template-idiom.txt" ;;   # grammar clean -> idiom only
+    unavailable)    tmpl="prompt-template.txt" ;;         # off/missing/parse-fail -> combined (= today)
+    *)              tmpl="" ;;                            # hard_tip / hard_unrenderable -> no LLM
+  esac
+  if [ -n "$tmpl" ]; then
+    tip="$(ec_run_provider "$pf" "$tmpl" | ec_sanitize_tip)"
+  fi
+  [ "$state" = "hard_unrenderable" ] && tip=""            # detected hard error stays off the network
 
   # Seq guard (§4.4): only write if no newer prompt has arrived.
   [ "$(ec_seq_current "$sid_key")" = "$seq" ] || return 0
@@ -122,15 +137,15 @@ ec_worker_main() {
   mkdir -p "$EC_TIPS_DIR"
   printf 'seq=%s\n%s' "$seq" "$tip" | ec_atomic_write "$EC_TIPS_DIR/$sid_key"
 
-  # Optional logging (off by default, §7).
+  # Optional logging (off by default, §7) — now records the resolved state.
   if [ "${EC_LOG:-0}" = "1" ]; then
     mkdir -p "$EC_HOME"
     if [ "${EC_LOG_ORIGINAL:-0}" = "1" ] && command -v jq >/dev/null 2>&1; then
-      jq -nc --arg s "$seq" --arg b "$EC_BACKEND" --arg t "$tip" --rawfile o "$pf" \
-        '{seq:$s, backend:$b, tip:$t, original:$o}' >> "$EC_LOG_FILE" 2>/dev/null || true
+      jq -nc --arg s "$seq" --arg b "$EC_BACKEND" --arg st "$state" --arg t "$tip" --rawfile o "$pf" \
+        '{seq:$s, backend:$b, state:$st, tip:$t, original:$o}' >> "$EC_LOG_FILE" 2>/dev/null || true
     else
-      printf '{"seq":"%s","backend":"%s","has_tip":%s}\n' \
-        "$seq" "$EC_BACKEND" "$([ -n "$tip" ] && echo true || echo false)" >> "$EC_LOG_FILE"
+      printf '{"seq":"%s","backend":"%s","state":"%s","has_tip":%s}\n' \
+        "$seq" "$EC_BACKEND" "$state" "$([ -n "$tip" ] && echo true || echo false)" >> "$EC_LOG_FILE"
     fi
   fi
 }
