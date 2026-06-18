@@ -4,6 +4,8 @@
 
 > 這是平常自己在用的小工具，放出來單純分享。沒有特別的維護計畫，歡迎自由取用、改成適合你的版本 🙂
 
+緣起：靈感來自 tw93 的 [Waza](https://github.com/tw93/Waza) 裡的 [`rules/english.md`](https://github.com/tw93/Waza/blob/main/rules/english.md)——一條讓 AI 在你用英文時順手檢查、給建議的規則。這裡把它變成常駐、無感、而且完全不碰 AI 工作的版本。
+
 ## 兩個部分
 
 | 部分 | 機制 |

@@ -17,6 +17,8 @@
 
 除了文法，也會點出更像美國人會講的說法。這些建議**只給你看**：不進 AI 的對話、不花一個 token、也不會讓你的輸入慢半拍。貼上的程式碼、log、中文、太長的內容自動略過，URL 和路徑先遮掉再送出。後端用 Groq，所以反應快。
 
+靈感來自 tw93 的 [Waza](https://github.com/tw93/Waza)（`rules/english.md`）。
+
 ### `kehao-util`——雜項小工具
 
 | Skill | 做什麼 |
