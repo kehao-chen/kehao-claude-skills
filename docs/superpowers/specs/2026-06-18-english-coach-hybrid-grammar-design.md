@@ -46,23 +46,26 @@ worker_main(sid_key, seq, pf):
 
   if ec_grammar_resolve() == harper:        # EC_GRAMMAR + command -v $EC_HARPER_BIN
       tip = ec_grammar_check(pf); rc = $?
-      # 三態（注意：harper 找到 lint 會「先印 JSON、再以非零退出」，
-      # 所以成敗一律看 stdout 能否解析成 JSON，絕不看 exit code）：
-      if   rc == 0 and tip != "": state = "hard_tip"        # 已驗出硬錯誤
-      elif rc == 0:               state = "verified_clean"  # 成功解析、無硬錯誤候選
-      else:                       state = "unavailable"     # 無 JSON/解析失敗/執行錯誤
+      # 成敗一律看 stdout 能否解析成 JSON、絕不看 exit code
+      # （harper 找到 lint 會「先印 JSON、再以非零退出」）。四態，rc 自訂（見 §5.2）：
+      if   rc == 0 and tip != "": state = "hard_tip"          # 驗出硬錯誤、可渲染成一行
+      elif rc == 0:               state = "verified_clean"    # 解析成功、無硬錯誤候選
+      elif rc == 3:               state = "hard_unrenderable" # 有硬錯誤、但 suggestion 缺失/無法渲染
+      else:                       state = "unavailable"       # 無 JSON/解析失敗/執行錯誤
 
-  if state != "hard_tip":                   # 沒有要顯示的本地硬錯誤 → 走 LLM
-      tmpl = (state == "verified_clean") ? "prompt-template-idiom.txt"
-                                         : "prompt-template.txt"   # combined（含 unavailable）
-      tip = ec_sanitize_tip( ec_run_provider(pf, tmpl) )          # provider 從 tmpl 讀 rubric
+  if   state == "verified_clean":
+      tip = ec_sanitize_tip( ec_run_provider(pf, "prompt-template-idiom.txt") )
+  elif state == "unavailable":
+      tip = ec_sanitize_tip( ec_run_provider(pf, "prompt-template.txt") )   # combined
+  # hard_tip → 用本地行；hard_unrenderable → tip 留空、不呼叫 LLM（隱私優先）
+  # 兩個 hard_* 狀態都不進 ec_run_provider
 
   # 之後與現狀相同：
   if ec_seq_current(sid_key) != seq: return    # seq guard
   atomic_write(tips/<sid_key>, "seq=<seq>\n<tip>")
 ```
 
-關鍵：**有硬錯誤的句子永遠不進入 `ec_run_provider`**——這就是隱私與速度的來源。
+關鍵：**被本地驗出硬錯誤的句子（`hard_tip` 與 `hard_unrenderable` 皆然）永遠不進入 `ec_run_provider`**——這就是隱私與速度的來源。
 
 ### 4.2 元件清單
 
@@ -99,7 +102,12 @@ worker_main(sid_key, seq, pf):
 - 輸入用 **temp 檔路徑**（`check.sh` 已寫好的 `.txt`），避免 stdin 與「位置參數是文字還是路徑」的歧義；`.txt` 副檔名讓 Harper 以 plaintext 自動辨識。檔內已是 redact 過的 prose。
 - 輸出是 **JSON 陣列**；我們只取 `.[0].lints`（我們只送一個輸入）。
 - ⚠️ **exit code 不可信**：`harper-cli lint --format json` 會**先把 JSON 印到 stdout，再於「有 lint」時 `bail!("Lints were found")` 以非零退出**（upstream `harper-cli/src/lint.rs`：JSON 印出 L365-367、`if has_lints { bail }` L374-376）。「找到錯誤」本身就是非零退出，因此 **成敗一律以「stdout 能否解析成預期 JSON」判定，完全忽略 exit code**。
-- 用 `jq` 解析 `.[0].lints`，回傳三態給 worker（§4.1／§8）：解析成功且有硬錯誤候選 → echo 該行、`return 0`（hard_tip）；解析成功但無硬錯誤候選 → echo 空、`return 0`（verified_clean）；**stdout 無法解析（空／壞 JSON／執行錯誤）→ `return` 非零（unavailable）**。Harper CLI 為 experimental、欄位會漂，**任何意外都不可炸掉、不可阻斷**。
+- 用 `jq` 解析 `.[0].lints`，回傳**四態**給 worker（§4.1／§8），以 return code 區分（成敗只看 JSON 可否解析、不看 harper exit code）：
+  - 解析成功、有硬錯誤候選且**可渲染** → echo 該行、`return 0`（hard_tip）；
+  - 解析成功、**無**硬錯誤候選 → echo 空、`return 0`（verified_clean）；
+  - 解析成功、**有**硬錯誤候選但**全部不可渲染**（`suggestions` 為空／格式不明）→ echo 空、`return 3`（hard_unrenderable）；
+  - **stdout 無法解析**（空／壞 JSON／執行錯誤）→ echo 空、`return 2`（unavailable）。
+  Harper CLI 為 experimental、欄位會漂，**任何意外都不可炸掉、不可阻斷**。
 
 ### 5.3 選擇政策（哪一條、要不要 gate）
 
@@ -114,7 +122,7 @@ worker_main(sid_key, seq, pf):
 
 1. `EC_HARPER_GATE=errors`（預設）：只在「硬錯誤」桶裡挑。`any`：所有 `kind` 都可挑（Harper 找到什麼就顯示什麼）。
 2. 在候選裡取 **`char_start` 最小**那條（修最前面的錯）；平手用 **`priority` 最小**（Harper 內部 lower=higher priority）。
-3. 候選為空（只剩風格類，或完全無錯）→ echo 空、`return 0`（verified_clean）→ worker 走 idiom-only LLM。
+3. **沒有任何硬錯誤候選**（只剩風格類，或完全無錯）→ echo 空、`return 0`（verified_clean）→ worker 走 idiom-only LLM。（注意：「有硬錯誤候選但渲染不出」**不是**這一條——那是 `hard_unrenderable`，見 §5.4。）
 
 > Harper 的 `kind` 全集（供對照）：Agreement, BoundaryError, Capitalization, Eggcorn, Enhancement, Formatting, Grammar, Malapropism, Miscellaneous, Nonstandard, Punctuation, Readability, Redundancy, Regionalism, Repetition, Spelling, Style, Typo, Usage, WordChoice。未列入硬錯誤桶者一律視為語感／風格。
 
@@ -127,7 +135,7 @@ worker_main(sid_key, seq, pf):
    - `Replace with: "X"` → 在 `[char_start,char_end)` 換成 `X`。
    - `Insert "X"` → 在 `char_end` 後插入 `X`（必要時補一個空白）。
    - `Remove error` → 刪掉 `[char_start,char_end)`。
-   - 其他／無 suggestion → 此 lint 不可渲染，跳過換下一條候選；都不可渲染 → echo 空（落 LLM）。
+   - 其他／無 suggestion（Harper `suggestions` 是 zero-or-more）→ 此 lint 不可渲染，跳過換下一條**硬錯誤**候選；**若硬錯誤候選全部不可渲染 → `hard_unrenderable`：echo 空、`return 3`，worker 既不呼叫 LLM、tip 也留空**（守住「硬錯誤不出網路」，且不誤判為 verified_clean）。（future：可在不出網路下顯示降級提示；v1 先靜默＋log。）
 3. 以 perl（`-CSDA`，字元安全）算出 `corrected` 全文，再對 `T` 與 `corrected` 取**字元層級**最長共同前綴／後綴、向兩側擴到**詞邊界**，中間那段即：
    - `original` = `T` 的該段（缺字情形可能為空，改取插入點鄰近詞當視窗）
    - `improved` = `corrected` 的該段
@@ -153,18 +161,19 @@ worker_main(sid_key, seq, pf):
 
 ## 7. 隱私
 
-- gate 後，**被本地驗出硬錯誤的句子完全不出網路**（hard_tip）。其餘才送 LLM：`verified_clean` → idiom-only；`unavailable`（Harper off／不在／解析失敗）→ combined（＝今天，無回歸）。
+- gate 後，**被本地驗出硬錯誤的句子完全不出網路**（`hard_tip` 與 `hard_unrenderable` 皆然）。其餘才送 LLM：`verified_clean` → idiom-only；`unavailable`（Harper off／不在／解析失敗）→ combined（＝今天，無回歸）。
 - 既有保護不變：URL/path 先 redact；金鑰只在 600 的 `secrets.env`、不進 argv、不進對話。
 - 文件補一段（不綁核心）：把 `EC_OPENAI_BASE_URL` 指向本地 Ollama（`http://localhost:11434/v1`）即可讓 idiom 也全本地——現有 openai 後端已支援。
 
 ## 8. 錯誤處理與退回
 
-三態（見 §4.1）對應的退回：
+四態（見 §4.1）對應的退回：
 
-- **hard_tip**（解析成功、有硬錯誤候選）→ 顯示本地行、**不呼叫 LLM**。注意此時 harper 多半以**非零退出**（找到 lint 即 bail），但因 stdout 有合法 JSON → 視為成功。
-- **verified_clean**（解析成功、無硬錯誤候選）→ 走 **idiom-only** LLM（此時「文法確實已驗過且乾淨」的前提才成立）。
+- **hard_tip**（解析成功、有硬錯誤候選且可渲染）→ 顯示本地行、**不呼叫 LLM**。注意此時 harper 多半以**非零退出**（找到 lint 即 bail），但因 stdout 有合法 JSON → 視為成功。
+- **verified_clean**（解析成功、**無**硬錯誤候選）→ 走 **idiom-only** LLM（此時「文法確實已驗過且乾淨」的前提才成立）。
+- **hard_unrenderable**（解析成功、**有**硬錯誤候選但 suggestion 缺失／格式不明、全部渲染不出）→ **不呼叫 LLM、tip 留空（只 log）**。隱私優先：Harper 已判定有硬錯誤的句子不出網路，也不被誤當成 verified_clean。代價是該句此次無提示（罕見）；future 可加不出網路的降級提示。
 - **unavailable**（`EC_GRAMMAR=off`、Harper 不在、或 stdout 無法解析／壞 JSON／執行錯誤）→ 走 **combined** LLM（＝今天的完整 grammar+idiom 覆蓋）。
-  - 關鍵修正：解析失敗**不可**降級成 idiom-only——那等於謊稱「文法已查過」，會在 CLI/schema 漂移時把既有覆蓋整個弱化。失敗就回 combined（無回歸）；若使用者偏好，亦可設定成 no-network/no-tip。
+  - 關鍵：解析失敗**不可**降級成 idiom-only——那等於謊稱「文法已查過」，會在 CLI/schema 漂移時把既有覆蓋整個弱化。失敗就回 combined（無回歸）。
 - log（沿用 `EC_LOG`，預設關）：resolve 結果、最終 state、harper 退出碼與 stdout 是否可解析，便於除錯；不記原文（除非既有 `EC_LOG_ORIGINAL`）。
 - `EC_HARPER_BIN` 可被環境覆寫 → 亦是**測試注入點**（見 §9）。
 
@@ -186,6 +195,7 @@ worker_main(sid_key, seq, pf):
 10. 全乾淨（無 lint）→ echo 空、`return 0`（verified_clean）→ 走 **idiom-only** LLM。
 11. **exit-code 回歸測（守住 privacy gate）**：假 harper **輸出含一個 hard error 的合法 JSON、但 `exit 1`** → 必須仍判 hard_tip、顯示本地行、**不呼叫 LLM**（對應 §5.2 的 upstream `bail!` 行為）。
 12. **state 不混測**：合法 JSON 無 hard error（verified_clean）→ idiom-only；對照壞 JSON（unavailable）→ combined，確認兩條路不混淆。
+13. **hard_unrenderable（隱私邊界）**：合法 JSON、含一個 hard error、但該 lint `suggestions` 為空／格式不明 → `ec_grammar_check` `return 3`、echo 空 → worker **不判 verified_clean、不呼叫 LLM、不寫 tip**（該句不出網路）。對照：同一句但 suggestion 完好 → hard_tip、顯示本地行。
 
 並維持 `./scripts/validate.sh` 通過。
 
