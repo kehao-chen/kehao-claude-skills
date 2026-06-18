@@ -1,69 +1,40 @@
 # kehao-claude-skills
 
-Kehao 個人的 [Claude Code](https://code.claude.com) plugin marketplace —— 集中管理、版控、跨機器同步自己的 skills 與工具,並可分享給他人。
+我(Kehao)自己在用的一包 [Claude Code](https://code.claude.com) skills 與小工具,整理成一個 plugin marketplace,順手公開分享。
 
-## 內容
+> ⚠️ **個人自用、原樣分享。** 這純粹是我自己用得爽的東西,丟出來只是分享 ——
+> **不保證維護、不保證更新、也不保證適合你**。覺得有用就拿去、改成你自己的版本。
 
-| Plugin | 說明 | Skills |
-|---|---|---|
-| `kehao-util` | 日常工具集 | `new-skill`(從樣板長出新的 skill) |
+## 有哪些
 
-## 安裝
+### `english-coach` — 背景英文教練
+每次我手打英文送出,它在背景默默檢查,有問題才在狀態列底部丟**一行**建議,例如:
+
+```
+😇 I has finish → I have finished (verb form)
+😇 revert back to you → get back to you (more natural)
+```
+
+除了文法,也會教更像母語者(美式)的講法。**不進 AI 的對話、不加 token、不卡你的輸入**;貼上的程式碼、log、中文、太長的內容都會自動略過,URL/路徑會被遮掉不外送。後端走 Groq(快又便宜)。
+
+### `kehao-util` — 日常小工具
+
+| Skill | 做什麼 |
+|---|---|
+| `new-skill` | 一行指令從樣板長出新的 skill 骨架(我用它來長這個 repo 的下一個 skill) |
+
+## 想試試看
 
 ```text
-/plugin marketplace add kehao/kehao-claude-skills      # 或本機路徑:~/projects/kehao-claude-skills
-/plugin install kehao-util@kehao-claude-skills
+/plugin marketplace add <github-user>/kehao-claude-skills   # 公開後;目前我是本機 ~/projects/kehao-claude-skills
+/plugin install english-coach@kehao-claude-skills           # 或 kehao-util@kehao-claude-skills
 ```
 
-安裝後,plugin 內的 skill **一律 namespaced**,例如:
+- **english-coach**:裝完跑一次 `/english-coach:setup` 接上狀態列,並在 `~/.claude/english-coach/secrets.env` 放你的 Groq API key,開新 session 就會動。設定細節見 [plugin README](./plugins/english-coach/README.md)。
+- **kehao-util**:裝完直接 `/kehao-util:new-skill <name> "<說明>"`。
 
-```text
-/kehao-util:new-skill <name> "<description>" [plugin]
-```
-
-> 內容更新後,使用者用 `/plugin marketplace update` 刷新(發布前記得 bump version,見下)。
-
-## 開發
-
-最順的開發迴圈是用 `--plugin-dir` 直接載入、`/reload-plugins` 熱更新,不必每次 reinstall:
-
-```bash
-claude --plugin-dir ./plugins/kehao-util
-# 在 Claude Code 內:
-/kehao-util:new-skill demo-skill "Scaffold a demo skill"
-/reload-plugins         # 改了內容後熱載入
-```
-
-驗證(本機,離線可跑):
-
-```bash
-./scripts/validate.sh   # 內含 claude plugin validate --strict + 一致性檢查
-```
-
-## 新增一個 skill
-
-```text
-/kehao-util:new-skill my-new-skill "一句話說明這個 skill 做什麼"
-```
-
-`new-skill` 會在 **目前 repo** 的 `plugins/<plugin>/skills/<name>/SKILL.md` 產生骨架(從 `templates/SKILL.md.tmpl`),不會覆蓋既有 skill,且只在 marketplace repo root 執行。產生後把 `SKILL.md` 的 TODO 換成真正的指引即可。
-
-## 版本策略
-
-- marketplace entry 與該 plugin 的 `plugin.json` 的 `version` 要**一致**。
-- **每次要讓使用者收到更新前,務必 bump version**(version 沒變使用者不會收到更新)。
-- 發版用 `claude plugin tag plugins/<plugin>`(會驗證兩邊版本一致並打 git tag)。
-
-## 結構
-
-```
-.claude-plugin/marketplace.json     # marketplace 清單
-plugins/<plugin>/
-  .claude-plugin/plugin.json        # plugin metadata
-  skills/<skill>/SKILL.md           # 每個 skill
-scripts/validate.sh                 # 驗證
-```
+> 注意:plugin 內的 skill 一律 namespaced,所以是 `/english-coach:setup`、`/kehao-util:new-skill`。
 
 ## 授權
 
-MIT — 見 [LICENSE](./LICENSE)。
+MIT —— 拿去用、改、散布都行,自負風險(見 [LICENSE](./LICENSE))。
