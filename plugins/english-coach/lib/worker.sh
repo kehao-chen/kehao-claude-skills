@@ -3,6 +3,7 @@ set -u
 EC_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$EC_SELF_DIR/config.sh"
 . "$EC_SELF_DIR/lib.sh"
+. "$EC_SELF_DIR/grammar.sh"
 
 # Sanitize raw model output (stdin) -> a single safe tip line, or empty. §4.2 H4.
 ec_sanitize_tip() {
@@ -37,14 +38,14 @@ ec_sanitize_tip() {
   printf '%s' "$line"
 }
 
-# Load the rubric/system prompt once.
-ec_rubric() { cat "$EC_SELF_DIR/prompt-template.txt"; }
+# Load a rubric/system prompt. $1 = template filename (default: combined).
+ec_rubric() { cat "$EC_SELF_DIR/${1:-prompt-template.txt}"; }
 
 # claude-cli: rubric in argv (non-sensitive), user prompt via stdin. Isolated only
 # partially (non-bare loads global config); recursion guarded by ENGLISH_COACH_SKIP.
 ec_provider_claude_cli() {
-  local pf="$1"
-  ( cd /tmp && ENGLISH_COACH_SKIP=1 claude -p --model "$EC_CLAUDE_MODEL" "$(ec_rubric)" < "$pf" )
+  local pf="$1" tmpl="$2"
+  ( cd /tmp && ENGLISH_COACH_SKIP=1 claude -p --model "$EC_CLAUDE_MODEL" "$(ec_rubric "$tmpl")" < "$pf" )
 }
 
 # POST via a 600-perm curl config file so the API key NEVER appears in argv (ps-safe).
@@ -66,11 +67,11 @@ ec__curl_cfg_post() {
 }
 
 ec_provider_anthropic() {
-  local pf="$1" url body reqf key out
+  local pf="$1" tmpl="$2" url body reqf key out
   mkdir -p "$EC_TMP_DIR"
   key="${EC_ANTHROPIC_API_KEY:-${ANTHROPIC_API_KEY:-}}"
   url="${EC_ANTHROPIC_BASE_URL%/}/v1/messages"
-  body="$(jq -n --arg m "$EC_ANTHROPIC_MODEL" --arg sys "$(ec_rubric)" --rawfile p "$pf" \
+  body="$(jq -n --arg m "$EC_ANTHROPIC_MODEL" --arg sys "$(ec_rubric "$tmpl")" --rawfile p "$pf" \
     '{model:$m, max_tokens:120, system:$sys, messages:[{role:"user", content:$p}]}')"
   reqf="$(mktemp "$EC_TMP_DIR/req.XXXXXX")"; printf '%s' "$body" > "$reqf"
   out="$(ec__curl_cfg_post "$url" "$reqf" "x-api-key: $key" "anthropic-version: 2023-06-01")"
@@ -79,12 +80,12 @@ ec_provider_anthropic() {
 }
 
 ec_provider_openai() {
-  local pf="$1" url body reqf out
+  local pf="$1" tmpl="$2" url body reqf out
   mkdir -p "$EC_TMP_DIR"
   url="${EC_OPENAI_BASE_URL%/}/chat/completions"
   # Reasoning models (Groq gpt-oss/qwen3) need token headroom and an optional
   # reasoning_effort knob; only emit reasoning_effort when explicitly configured.
-  body="$(jq -n --arg m "$EC_OPENAI_MODEL" --arg sys "$(ec_rubric)" --rawfile p "$pf" \
+  body="$(jq -n --arg m "$EC_OPENAI_MODEL" --arg sys "$(ec_rubric "$tmpl")" --rawfile p "$pf" \
     --argjson mt "${EC_OPENAI_MAX_TOKENS:-512}" --arg re "${EC_OPENAI_REASONING_EFFORT:-}" \
     '{model:$m, max_tokens:$mt, messages:[{role:"system",content:$sys},{role:"user",content:$p}]}
      + (if $re == "" then {} else {reasoning_effort:$re} end)')"
@@ -94,12 +95,12 @@ ec_provider_openai() {
   printf '%s' "$out" | jq -r '.choices[0].message.content // empty'
 }
 
-# Dispatch by EC_BACKEND. $1 = prompt file. Echoes RAW model text (caller sanitizes).
+# $1 = prompt file, $2 = template filename. Echoes RAW model text (caller sanitizes).
 ec_run_provider() {
   case "$EC_BACKEND" in
-    claude-cli) ec_provider_claude_cli "$1" ;;
-    anthropic)  ec_provider_anthropic "$1" ;;
-    openai)     ec_provider_openai "$1" ;;
+    claude-cli) ec_provider_claude_cli "$1" "$2" ;;
+    anthropic)  ec_provider_anthropic "$1" "$2" ;;
+    openai)     ec_provider_openai "$1" "$2" ;;
     *) printf '' ;;
   esac
 }
