@@ -1,9 +1,8 @@
 # kehao-claude-skills
 
-我(Kehao)自己在用的一包 [Claude Code](https://code.claude.com) skills 與小工具,整理成一個 plugin marketplace,順手公開分享。
+一包個人自用的 [Claude Code](https://code.claude.com) skills 與小工具,整理成 plugin marketplace,放出來跟大家分享。
 
-> ⚠️ **個人自用、原樣分享。** 這純粹是我自己用得爽的東西,丟出來只是分享 ——
-> **不保證維護、不保證更新、也不保證適合你**。覺得有用就拿去、改成你自己的版本。
+> 這些都是平常自己在用的小東西,放上來單純分享給有需要的人參考。沒有特別的維護計畫,歡迎自由取用、改成適合你的版本 🙂
 
 ## 有哪些
 
@@ -37,4 +36,4 @@
 
 ## 授權
 
-MIT —— 拿去用、改、散布都行,自負風險(見 [LICENSE](./LICENSE))。
+MIT,歡迎自由使用、修改、散布(見 [LICENSE](./LICENSE))。
