@@ -14,9 +14,9 @@
 ## 安裝
 
 ```text
-/plugin marketplace add kehao/kehao-claude-skills   # 或本機路徑
+/plugin marketplace add <owner>/kehao-claude-skills   # 還沒上 GitHub;publish 後換成真 owner
 /plugin install english-coach@kehao-claude-skills
-/english-coach:setup          # 一次性,接 statusline
+/english-coach:setup          # 一次性,接上狀態列顯示
 ```
 
 接著(若還沒設定):
