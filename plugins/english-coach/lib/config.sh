@@ -34,6 +34,14 @@
 # EC_ANTHROPIC_API_KEY / EC_OPENAI_API_KEY: unset by default
 # EC_INNER_STATUSLINE: set by install.sh (original statusLine.command)
 
+# Local grammar pre-pass (§3/§5 of the spec). One of: auto | harper | off
+#   auto   = use Harper if $EC_HARPER_BIN is on PATH, else fall back to combined LLM (today)
+#   harper = force Harper (if missing: log + fall back), off = never use Harper
+: "${EC_GRAMMAR:=auto}"
+: "${EC_HARPER_BIN:=harper-cli}"   # brew installs the one-shot CLI as `harper-cli` (NOT `harper`)
+: "${EC_HARPER_DIALECT:=us}"       # American English — matches the coach's "sound like an American" goal
+: "${EC_HARPER_GATE:=errors}"      # errors | any — which lint kinds gate the LLM
+
 # Derived runtime dirs
 EC_STATE_DIR="$EC_HOME/state"
 EC_TIPS_DIR="$EC_HOME/tips"
